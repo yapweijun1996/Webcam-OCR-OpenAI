@@ -234,7 +234,7 @@
   const BINARY_BUDGET = Math.floor(TARGET_MAX_BASE64_BYTES * 3/4); // ≈75 KB binary (base64 +33%)
   const FRAME_WIDTH = 640;                                         // downscale width
   const JPEG_QUALITIES = [0.7, 0.6, 0.5, 0.45, 0.4, 0.35, 0.3];
-  let SCAN_INTERVAL_MS = 700;                                      // dynamic interval, starts at 700ms
+  let SCAN_INTERVAL_MS = 100;                                      // dynamic interval, starts at 100ms
 
   // ====== Model Configuration ======
   const MODEL_PRICING = {
@@ -251,7 +251,7 @@
   };
 
   function getCurrentModel() {
-    return elModel ? elModel.value : 'gpt-5-mini';
+    return elModel ? elModel.value : getSavedModel();
   }
 
   // ====== Elements ======
@@ -745,6 +745,8 @@
   elStart.addEventListener('click', startAll);
   elStop.addEventListener('click', stopAll);
   elModel.addEventListener('change', () => {
+    // Save model selection to localStorage
+    setSavedModel(elModel.value);
     // Reset cumulative tracking when switching models
     cumulativeTokens = { input: 0, output: 0, total: 0 };
     cumulativeCosts = { input: 0, output: 0, total: 0 };
@@ -753,7 +755,13 @@
     tableContainer.style.display = 'none';
     cumulativeCostSection.style.display = 'none';
   });
-  window.addEventListener('load', () => { startAll().catch(console.warn); });
+  window.addEventListener('load', () => {
+    // Load saved model selection
+    if (elModel) {
+      elModel.value = getSavedModel();
+    }
+    startAll().catch(console.warn);
+  });
 })();
 </script>
 </body>
