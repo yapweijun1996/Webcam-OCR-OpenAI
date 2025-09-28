@@ -160,12 +160,24 @@
 
   <!-- Performance Metrics -->
   <div class="card metrics-section">
-    <div class="label">📊 Performance Metrics</div>
+    <div class="label">
+      📊 Performance Metrics
+      <button onclick="toggleMetricsHelp()" style="background: none; border: none; color: #6b7280; font-size: 12px; cursor: pointer; margin-left: 8px;" title="Show/hide help">❓</button>
+    </div>
     <div class="metrics-container">
       <div class="performance-badge" style="background: #dbeafe; color: #1e40af; padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: 600; margin-bottom: 8px; display: inline-block;">
         ⚡ Speed Optimized
       </div>
       <div class="metrics-summary" id="metrics-display">—</div>
+
+      <!-- Metrics Help Section -->
+      <div id="metrics-help" class="metrics-help" style="display: none; margin-top: 8px; font-size: 11px; color: #6b7280; line-height: 1.4; padding: 8px; background: #f9fafb; border-radius: 6px; border: 1px solid #f3f4f6;">
+        <div style="margin: 4px 0;"><strong>bin:XXKB</strong> — Compressed image size sent to API</div>
+        <div style="margin: 4px 0;"><strong>api:XXXms</strong> — Current API response time</div>
+        <div style="margin: 4px 0;"><strong>avg:XXXms</strong> — Average API response time</div>
+        <div style="margin: 4px 0;"><strong>interval:XXXms</strong> — Time between scans (auto-adjusted)</div>
+        <div style="margin: 4px 0;"><strong>tokens:XXX</strong> — Total tokens used in current API call</div>
+      </div>
       <div class="token-table-container" id="token-table-container" style="display: none;">
         <table class="token-table">
           <thead>
@@ -188,6 +200,28 @@
               <td id="cumulative-input" class="token-input"><strong>—</strong></td>
               <td id="cumulative-output" class="token-output"><strong>—</strong></td>
               <td id="cumulative-total" class="token-total"><strong>—</strong></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- API Time Table -->
+      <div class="api-time-container" id="api-time-container" style="display: none; margin-top: 12px;">
+        <table class="token-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th>Current</th>
+              <th>Average</th>
+              <th>Scans</th>
+            </tr>
+          </thead>
+          <tbody id="api-time-table-body">
+            <tr class="current-row">
+              <td><small>API Time</small></td>
+              <td id="current-api-time" class="token-total">—</td>
+              <td id="average-api-time" class="token-total">—</td>
+              <td id="api-scan-count" class="token-total">—</td>
             </tr>
           </tbody>
         </table>
@@ -234,7 +268,7 @@
   const BINARY_BUDGET = Math.floor(TARGET_MAX_BASE64_BYTES * 3/4); // ≈75 KB binary (base64 +33%)
   const FRAME_WIDTH = 640;                                         // downscale width
   const JPEG_QUALITIES = [0.7, 0.6, 0.5, 0.45, 0.4, 0.35, 0.3];
-  let SCAN_INTERVAL_MS = 100;                                      // dynamic interval, starts at 100ms
+  let SCAN_INTERVAL_MS = 500;                                      // dynamic interval, min 500ms
 
   // ====== Model Configuration ======
   const MODEL_PRICING = {
@@ -284,6 +318,12 @@
     input: 0,
     output: 0,
     total: 0
+  };
+
+  // ====== Cumulative API Time Tracking ======
+  let cumulativeApi = {
+    total: 0,
+    count: 0
   };
 
   // ====== IndexedDB for OCR History ======
@@ -389,8 +429,20 @@
 
   // Show specific history item
   function showHistoryItem(id) {
-    // This would be implemented to show full text of selected history item
-    console.log('Show history item:', id);
+    const tx = db.transaction([STORE_NAME], 'readonly');
+    const store = tx.objectStore(STORE_NAME);
+    const req = store.get(id);
+    req.onsuccess = () => {
+      if (req.result) elOCR.textContent = req.result.text;
+    };
+  }
+
+  // Toggle metrics help display
+  function toggleMetricsHelp() {
+    const helpSection = document.getElementById('metrics-help');
+    if (helpSection) {
+      helpSection.style.display = helpSection.style.display === 'none' ? 'block' : 'none';
+    }
   }
 
   // ====== API Key (localStorage) ======
@@ -517,7 +569,7 @@
     };
 
     const mainCost = `$${formatCost(totalCost)}`;
-    const breakdown = `${inputTokens}×${formatCost(inputCost)} + ${outputTokens}×${formatCost(outputCost)}`;
+    const breakdown = `${inputTokens} tokens × $${modelConfig.inputCost.toFixed(8)} + ${outputTokens} tokens × $${modelConfig.outputCost.toFixed(8)}`;
     const indicator = `${totalTokens} tokens`;
 
     // Determine cost level for color coding
@@ -536,6 +588,87 @@
     };
   }
 
+  // ====== OCR Response Validation ======
+  function validateOCRResponse(text) {
+    // Ensure text is a non-empty string
+    if (typeof text !== 'string' || text.length === 0) {
+      return '_no_valid_text_';
+    }
+
+    // Normalize and check for invalid responses
+    const normalized = text.toLowerCase().trim();
+
+    // Reject common invalid responses that AI might give
+    const invalidResponses = [
+      'no text',
+      'no readable text',
+      'text not found',
+      'unable to detect text',
+      'no text detected',
+      'no text visible',
+      'no text found',
+      'text is blurry',
+      'text is too small',
+      'cannot read text',
+      'no text available',
+      'no text present',
+      'text not visible',
+      'no text to transcribe',
+      'no text in image',
+      'no text detected in image',
+      'no text found in image',
+      'no text visible in image',
+      'no text present in image',
+      'no text available in image',
+      'no text to transcribe in image',
+      'no text can be found',
+      'no text can be detected',
+      'no text can be read',
+      'no text is visible',
+      'no text is present',
+      'no text is available',
+      'no text is found',
+      'no text is detected',
+      'no text is readable',
+      'no text is clear',
+      'no text is legible',
+      'no text is discernible',
+      'no text is recognizable',
+      'no text is identifiable',
+      'no text is apparent',
+      'no text is evident',
+      'no text is obvious',
+      'no text is clear',
+      'no text is visible',
+      'no text is present',
+      'no text is available',
+      'no text is found',
+      'no text is detected',
+      'no text is readable',
+      'no text is clear',
+      'no text is legible',
+      'no text is discernible',
+      'no text is recognizable',
+      'no text is identifiable',
+      'no text is apparent',
+      'no text is evident',
+      'no text is obvious'
+    ];
+
+    // Check if response matches any invalid pattern
+    if (invalidResponses.some(invalid => normalized.includes(invalid))) {
+      return '_no_valid_text_';
+    }
+
+    // If text is just whitespace, punctuation, or very short, treat as no valid text
+    if (text.trim().length < 2) {
+      return '_no_valid_text_';
+    }
+
+    // Return original text if it passes validation
+    return text;
+  }
+
   // ====== OpenAI Responses API call (browser) — General OCR ======
   async function callResponsesAPI(dataUrl){
     const key = getKey(); if (!key) throw new Error('no-api-key');
@@ -550,10 +683,7 @@
         effort: "minimal"
       },
       text: {
-        verbosity: "low"
-      },
-      // Structured outputs: return { "text": "<full text>" }
-      text: {
+        verbosity: "low",
         format: {
           type: 'json_schema',
           name: 'ocr_text',
@@ -570,7 +700,7 @@
         role: 'user',
         content: [
           { type:'input_text',
-            text:'Transcribe ALL readable text from this image. Preserve natural spaces and line breaks. Return JSON {"text":"<full text>"} ONLY.' },
+            text:'Transcribe ALL readable text from this image. Preserve spaces and line breaks. If there is no readable text, blurry text, or text is too small, then return exactly JSON {"text":"_no_valid_text_"} ONLY. Do not explain.' },
           { type:'input_image', image_url: dataUrl }
         ]
       }]
@@ -618,8 +748,13 @@
     // 3) Final fallback
     if (!textOut) textOut = data?.output_text || '';
 
-    // Light normalization
-    if (typeof textOut === 'string') textOut = textOut.replace(/\n{3,}/g, '\n\n').trim();
+    // Apply strict validation to ensure proper format
+    textOut = validateOCRResponse(textOut);
+
+    // Light normalization (only if not _no_valid_text_)
+    if (textOut !== '_no_valid_text_' && typeof textOut === 'string') {
+      textOut = textOut.replace(/\n{3,}/g, '\n\n').trim();
+    }
 
     return {
       text: textOut,
@@ -649,8 +784,13 @@
       elOCR.textContent = out.text || '—';
       const tok = out.usage?.total_tokens ?? 'n/a';
 
+      // Update cumulative API time tracking
+      cumulativeApi.total += out.api_ms;
+      cumulativeApi.count++;
+      const avgApi = Math.round(cumulativeApi.total / cumulativeApi.count);
+
       // Update metrics display
-      elMetrics.textContent = `📊 bin:${(blob.size/1024|0)}KB · api:${out.api_ms}ms · interval:${SCAN_INTERVAL_MS}ms · tokens:${tok}`;
+      elMetrics.textContent = `📊 bin:${(blob.size/1024|0)}KB · api:${out.api_ms}ms · avg:${avgApi}ms · interval:${SCAN_INTERVAL_MS}ms · tokens:${tok}`;
 
       // Update token table if usage data is available
       if (out.usage) {
@@ -675,6 +815,15 @@
         document.getElementById('cumulative-total').textContent = cumulativeTokens.total.toLocaleString();
 
         tableContainer.style.display = 'block';
+      }
+
+      // Update API time table
+      if (cumulativeApi.count > 0) {
+        const apiTimeContainer = document.getElementById('api-time-container');
+        document.getElementById('current-api-time').textContent = `${out.api_ms}ms`;
+        document.getElementById('average-api-time').textContent = `${avgApi}ms`;
+        document.getElementById('api-scan-count').textContent = cumulativeApi.count.toLocaleString();
+        apiTimeContainer.style.display = 'block';
       }
 
       // Calculate and display cost estimate
@@ -735,10 +884,13 @@
     // Reset cumulative tracking for new session
     cumulativeTokens = { input: 0, output: 0, total: 0 };
     cumulativeCosts = { input: 0, output: 0, total: 0 };
+    cumulativeApi = { total: 0, count: 0 };
     const tableContainer = document.getElementById('token-table-container');
     const cumulativeCostSection = document.getElementById('cumulative-cost-section');
+    const apiTimeContainer = document.getElementById('api-time-container');
     tableContainer.style.display = 'none';
     cumulativeCostSection.style.display = 'none';
+    apiTimeContainer.style.display = 'none';
   }
 
   // ====== UI ======
@@ -750,10 +902,13 @@
     // Reset cumulative tracking when switching models
     cumulativeTokens = { input: 0, output: 0, total: 0 };
     cumulativeCosts = { input: 0, output: 0, total: 0 };
+    cumulativeApi = { total: 0, count: 0 };
     const tableContainer = document.getElementById('token-table-container');
     const cumulativeCostSection = document.getElementById('cumulative-cost-section');
+    const apiTimeContainer = document.getElementById('api-time-container');
     tableContainer.style.display = 'none';
     cumulativeCostSection.style.display = 'none';
+    apiTimeContainer.style.display = 'none';
   });
   window.addEventListener('load', () => {
     // Load saved model selection
