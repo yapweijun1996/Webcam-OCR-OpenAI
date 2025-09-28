@@ -52,8 +52,7 @@
   </div>
 
   <div class="note">
-    Tip: on mobile, use HTTPS (or localhost) for camera access.  
-    提示：手机需 HTTPS（或 localhost）才能调起摄像头。
+    Tip: on mobile, use HTTPS (or localhost) for camera access.
   </div>
 </div>
 
@@ -65,10 +64,10 @@
   // ====== Config ======
   const MODEL = 'gpt-5-mini';
   const RESPONSES_URL = 'https://api.openai.com/v1/responses';
-  const TARGET_MAX_BASE64_BYTES = 100 * 1024;     // ~100 KB on-wire
-  const BINARY_BUDGET = Math.floor(TARGET_MAX_BASE64_BYTES * 3 / 4); // ≈75 KB binary
-  const FRAME_WIDTH = 640;                         // downscale width (auto height)
-  const JPEG_QUALITIES = [0.7, 0.6, 0.5, 0.45, 0.4, 0.35, 0.3]; // fallbacks
+  const TARGET_MAX_BASE64_BYTES = 100 * 1024;     // ≈100 KB on wire
+  const BINARY_BUDGET = Math.floor(TARGET_MAX_BASE64_BYTES * 3 / 4); // ≈75 KB binary (base64 adds ~33%)
+  const FRAME_WIDTH = 640;                         // downscale width
+  const JPEG_QUALITIES = [0.7, 0.6, 0.5, 0.45, 0.4, 0.35, 0.3]; // try in order
   const SCAN_INTERVAL_MS = 700;                    // delay between scans
 
   // ====== Elements ======
@@ -150,7 +149,7 @@
   }
   elFacing.addEventListener('change', () => startCamera(elFacing.value).catch(console.warn));
 
-  // ====== Capture & Compression (<= ~75 KB binary to keep base64 < ~100 KB) ======
+  // ====== Capture & Compression (<= ~75 KB binary → <= ~100 KB base64) ======
   function drawFrame() {
     const ctx = elCanvas.getContext('2d');
     ctx.drawImage(elVideo, 0, 0, elCanvas.width, elCanvas.height);
@@ -187,7 +186,7 @@
         return { blob, quality:q };
       }
     }
-    // final fallback: use the smallest we got (from last loop)
+    // final fallback: smallest we got
     const fallbackBlob = await new Promise(res => tmp.toBlob(res, 'image/jpeg', JPEG_QUALITIES.at(-1)));
     return { blob: fallbackBlob, quality: JPEG_QUALITIES.at(-1) };
   }
@@ -199,10 +198,10 @@
 
     const payload = {
       model: MODEL,
-      temperature: 0,
-      response_format: {
-        type: 'json_schema',
-        json_schema: {
+      // Structured outputs configuration
+      text: {
+        format: {
+          type: 'json_schema',
           name: 'parking_scan',
           schema: {
             type: 'object',
@@ -216,8 +215,8 @@
       input: [{
         role: 'user',
         content: [
-          { type:'text', text:'Extract ONLY the numeric parking/bay/stall ID from this image. Return JSON {"number": "..."}.' },
-          { type:'image_url', image_url:{ url: dataUrl } }
+          { type:'input_text', text:'Extract ONLY the numeric parking/bay/stall ID from this image. Return JSON {"number": "..."}.' },
+          { type:'input_image', image_url: dataUrl }
         ]
       }]
     };
@@ -228,17 +227,19 @@
       headers: { 'Authorization': `Bearer ${key}`, 'Content-Type':'application/json' },
       body: JSON.stringify(payload)
     });
-    const data = await res.json();
     const t1 = performance.now();
+    const data = await res.json();
 
     if (!res.ok) {
       const msg = data?.error?.message || `HTTP ${res.status}`;
       throw new Error(msg);
     }
 
+    // Preferred: parsed structured output
     let number = data?.output_parsed?.number || '';
+
+    // Fallback: try to parse text if schema not returned
     if (!number) {
-      // fallback: try text fields
       const text = data?.output_text || JSON.stringify(data?.output || data);
       const m = (text||'').match(/[0-9]+/);
       number = m ? m[0] : '';
@@ -260,14 +261,9 @@
     inflight = true;
     try {
       setStatus('capturing…');
-      const tCap0 = performance.now();
       const { blob, quality } = await compressToBudget();
-      const tCap1 = performance.now();
-
       const dataUrl = await blobToDataURL(blob); // includes "data:image/jpeg;base64,..."
-      // quick sanity check for base64 size:
       if (dataUrl.length > (TARGET_MAX_BASE64_BYTES * 1.1)) {
-        // still a bit large; continue anyway but note it
         console.warn('dataURL > target size:', (dataUrl.length/1024).toFixed(1), 'KB');
       }
 
@@ -278,7 +274,6 @@
       elOCR.textContent = out.number || '—';
       const tok = out.usage?.total_tokens ?? 'n/a';
       elMeta.textContent = `q:${quality} · bin:${(blob.size/1024|0)}KB · api:${out.api_ms}ms · tok:${tok}`;
-
       setStatus('ok');
     } catch (err) {
       console.error(err);
@@ -312,7 +307,6 @@
   // ====== UI bindings ======
   elStart.addEventListener('click', startAll);
   elStop.addEventListener('click', stopAll);
-  // Try auto-start on load (some browsers require a tap first)
   window.addEventListener('load', () => { startAll().catch(console.warn); });
 })();
 </script>
