@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Vanilla OCR Scanner (Responses API)</title>
+<style>
+  :root { --pad:12px; }
+  * { box-sizing:border-box; font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; }
+  body { margin:0; background:#f6f7f8; color:#111; }
+  .wrap { max-width:720px; margin:0 auto; padding:var(--pad); display:grid; gap:var(--pad); }
+  .bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  button, select { padding:8px 12px; border:1px solid #ccc; background:#fff; border-radius:8px; }
+  button.primary { background:#111; color:#fff; border-color:#111; }
+  .video-box { position:relative; background:#000; border-radius:10px; overflow:hidden; }
+  video { width:100%; height:auto; display:block; }
+  .hud {
+    position:absolute; left:0; right:0; bottom:0; display:flex; justify-content:space-between; gap:8px;
+    padding:8px; color:#fff; background:linear-gradient(180deg,transparent,rgba(0,0,0,.55));
+  }
+  .card { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:12px; }
+  .label { font-size:12px; color:#666; }
+  .value { font-size:22px; font-weight:700; letter-spacing:1px; }
+  .note { font-size:12px; color:#666; }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="bar">
+    <button id="apiBtn">API</button>
+    <select id="facing">
+      <option value="environment">Rear camera</option>
+      <option value="user">Front camera</option>
+    </select>
+    <button id="startBtn" class="primary">Start</button>
+    <button id="stopBtn">Stop</button>
+    <span class="note" id="status">idle</span>
+  </div>
+
+  <div class="video-box">
+    <video id="video" playsinline autoplay muted></video>
+    <div class="hud">
+      <span class="note">Auto-scanning… (sequential)</span>
+      <span class="note" id="meta">—</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="label">Last OCR</div>
+    <div class="value" id="ocr">—</div>
+  </div>
+
+  <div class="note">
+    Tip: on mobile, use HTTPS (or localhost) for camera access.  
+    提示：手机需 HTTPS（或 localhost）才能调起摄像头。
+  </div>
+</div>
+
+<!-- Hidden canvas for frame capture -->
+<canvas id="canvas" class="hidden"></canvas>
+
+<script>
+(async () => {
+  // ====== Config ======
+  const MODEL = 'gpt-5-mini';
+  const RESPONSES_URL = 'https://api.openai.com/v1/responses';
+  const TARGET_MAX_BASE64_BYTES = 100 * 1024;     // ~100 KB on-wire
+  const BINARY_BUDGET = Math.floor(TARGET_MAX_BASE64_BYTES * 3 / 4); // ≈75 KB binary
+  const FRAME_WIDTH = 640;                         // downscale width (auto height)
+  const JPEG_QUALITIES = [0.7, 0.6, 0.5, 0.45, 0.4, 0.35, 0.3]; // fallbacks
+  const SCAN_INTERVAL_MS = 700;                    // delay between scans
+
+  // ====== Elements ======
+  const elVideo = document.getElementById('video');
+  const elCanvas = document.getElementById('canvas');
+  const elFacing = document.getElementById('facing');
+  const elStart  = document.getElementById('startBtn');
+  const elStop   = document.getElementById('stopBtn');
+  const elAPI    = document.getElementById('apiBtn');
+  const elStatus = document.getElementById('status');
+  const elOCR    = document.getElementById('ocr');
+  const elMeta   = document.getElementById('meta');
+
+  // ====== State ======
+  let stream = null;
+  let running = false;
+  let inflight = false;
+  let lastTimer = null;
+
+  // ====== API Key (localStorage) ======
+  function getKey() { return localStorage.getItem('OPENAI_API_KEY') || ''; }
+  function setKey(k) {
+    if (!k) { localStorage.removeItem('OPENAI_API_KEY'); }
+    else { localStorage.setItem('OPENAI_API_KEY', k.trim()); }
+  }
+  async function ensureKey() {
+    let k = getKey();
+    if (!k) {
+      k = prompt('Enter your OpenAI API key (sk-...)');
+      if (k && k.trim()) {
+        setKey(k.trim());
+      } else {
+        alert('API key required to proceed.');
+        throw new Error('no-api-key');
+      }
+    }
+    return k;
+  }
+  elAPI.addEventListener('click', () => {
+    const cur = getKey();
+    const next = prompt('Edit your OpenAI API key:', cur || '');
+    if (next === null) return; // cancelled
+    if (!next.trim()) {
+      if (confirm('Clear saved API key?')) setKey('');
+    } else {
+      setKey(next.trim());
+      alert('Saved.');
+    }
+  });
+
+  // ====== Camera ======
+  async function startCamera(facingMode='environment') {
+    stopCamera();
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { exact: facingMode } }, audio: false
+      });
+    } catch {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode }, audio: false
+        });
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      }
+    }
+    elVideo.srcObject = stream;
+    await elVideo.play();
+
+    // Set canvas size for downscale
+    const vw = elVideo.videoWidth || 1280;
+    const vh = elVideo.videoHeight || 720;
+    const scale = FRAME_WIDTH / vw;
+    elCanvas.width  = Math.round(vw * scale);
+    elCanvas.height = Math.round(vh * scale);
+  }
+  function stopCamera() {
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  }
+  elFacing.addEventListener('change', () => startCamera(elFacing.value).catch(console.warn));
+
+  // ====== Capture & Compression (<= ~75 KB binary to keep base64 < ~100 KB) ======
+  function drawFrame() {
+    const ctx = elCanvas.getContext('2d');
+    ctx.drawImage(elVideo, 0, 0, elCanvas.width, elCanvas.height);
+  }
+  function blobToDataURL(blob) {
+    return new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result);
+      fr.onerror = reject;
+      fr.readAsDataURL(blob);
+    });
+  }
+  async function compressToBudget() {
+    drawFrame();
+    for (let q of JPEG_QUALITIES) {
+      const blob = await new Promise(res => elCanvas.toBlob(res, 'image/jpeg', q));
+      if (!blob) throw new Error('toBlob failed');
+      if (blob.size <= BINARY_BUDGET) {
+        return { blob, quality:q };
+      }
+    }
+    // If still too large, downscale further by 0.85 and retry once
+    const tmp = document.createElement('canvas');
+    tmp.width = Math.round(elCanvas.width * 0.85);
+    tmp.height = Math.round(elCanvas.height * 0.85);
+    tmp.getContext('2d').drawImage(elCanvas, 0, 0, tmp.width, tmp.height);
+    for (let q of JPEG_QUALITIES) {
+      const blob = await new Promise(res => tmp.toBlob(res, 'image/jpeg', q));
+      if (!blob) throw new Error('toBlob failed (2)');
+      if (blob.size <= BINARY_BUDGET) {
+        // copy back to elCanvas to keep size consistent for next loops
+        elCanvas.width = tmp.width; elCanvas.height = tmp.height;
+        elCanvas.getContext('2d').drawImage(elVideo, 0, 0, elCanvas.width, elCanvas.height);
+        return { blob, quality:q };
+      }
+    }
+    // final fallback: use the smallest we got (from last loop)
+    const fallbackBlob = await new Promise(res => tmp.toBlob(res, 'image/jpeg', JPEG_QUALITIES.at(-1)));
+    return { blob: fallbackBlob, quality: JPEG_QUALITIES.at(-1) };
+  }
+
+  // ====== OpenAI Responses API call (browser) ======
+  async function callResponsesAPI(dataUrl) {
+    const key = getKey();
+    if (!key) throw new Error('no-api-key');
+
+    const payload = {
+      model: MODEL,
+      temperature: 0,
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'parking_scan',
+          schema: {
+            type: 'object',
+            properties: { number: { type:'string', pattern:'^[0-9]+$' } },
+            required: ['number'],
+            additionalProperties: false
+          },
+          strict: true
+        }
+      },
+      input: [{
+        role: 'user',
+        content: [
+          { type:'text', text:'Extract ONLY the numeric parking/bay/stall ID from this image. Return JSON {"number": "..."}.' },
+          { type:'image_url', image_url:{ url: dataUrl } }
+        ]
+      }]
+    };
+
+    const t0 = performance.now();
+    const res = await fetch(RESPONSES_URL, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${key}`, 'Content-Type':'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    const t1 = performance.now();
+
+    if (!res.ok) {
+      const msg = data?.error?.message || `HTTP ${res.status}`;
+      throw new Error(msg);
+    }
+
+    let number = data?.output_parsed?.number || '';
+    if (!number) {
+      // fallback: try text fields
+      const text = data?.output_text || JSON.stringify(data?.output || data);
+      const m = (text||'').match(/[0-9]+/);
+      number = m ? m[0] : '';
+    }
+
+    return {
+      number,
+      usage: data?.usage || null,
+      api_ms: Math.round(t1 - t0)
+    };
+  }
+
+  // ====== Loop ======
+  function setStatus(s){ elStatus.textContent = s; }
+  async function scanOnce() {
+    if (!running || inflight) return;
+    if (!elVideo.srcObject) { setStatus('camera unavailable'); return; }
+
+    inflight = true;
+    try {
+      setStatus('capturing…');
+      const tCap0 = performance.now();
+      const { blob, quality } = await compressToBudget();
+      const tCap1 = performance.now();
+
+      const dataUrl = await blobToDataURL(blob); // includes "data:image/jpeg;base64,..."
+      // quick sanity check for base64 size:
+      if (dataUrl.length > (TARGET_MAX_BASE64_BYTES * 1.1)) {
+        // still a bit large; continue anyway but note it
+        console.warn('dataURL > target size:', (dataUrl.length/1024).toFixed(1), 'KB');
+      }
+
+      setStatus('sending…');
+      const out = await callResponsesAPI(dataUrl);
+
+      // Update UI with result
+      elOCR.textContent = out.number || '—';
+      const tok = out.usage?.total_tokens ?? 'n/a';
+      elMeta.textContent = `q:${quality} · bin:${(blob.size/1024|0)}KB · api:${out.api_ms}ms · tok:${tok}`;
+
+      setStatus('ok');
+    } catch (err) {
+      console.error(err);
+      setStatus('error');
+      elMeta.textContent = (err && err.message) ? err.message : 'error';
+    } finally {
+      inflight = false;
+      if (running) setTimeout(scanOnce, SCAN_INTERVAL_MS);
+    }
+  }
+
+  async function startAll() {
+    try {
+      await ensureKey();
+    } catch { return; }
+    if (running) return;
+    setStatus('starting camera…');
+    await startCamera(elFacing.value);
+    running = true;
+    setStatus('scanning…');
+    scanOnce();
+  }
+  function stopAll() {
+    running = false;
+    clearTimeout(lastTimer);
+    setStatus('stopped');
+    // keep preview; to fully stop camera, uncomment:
+    // stopCamera();
+  }
+
+  // ====== UI bindings ======
+  elStart.addEventListener('click', startAll);
+  elStop.addEventListener('click', stopAll);
+  // Try auto-start on load (some browsers require a tap first)
+  window.addEventListener('load', () => { startAll().catch(console.warn); });
+})();
+</script>
+</body>
+</html>
