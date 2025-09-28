@@ -124,6 +124,10 @@
   <!-- Control Panel -->
   <div class="bar">
     <button id="apiBtn">API</button>
+    <select id="model">
+      <option value="gpt-5-mini">🤖 GPT-5-Mini ($0.25/$2.00)</option>
+      <option value="gpt-5-nano">⚡ GPT-5-Nano ($0.05/$0.40)</option>
+    </select>
     <select id="facing">
       <option value="environment">📷 Rear camera</option>
       <option value="user">🤳 Front camera</option>
@@ -166,16 +170,24 @@
         <table class="token-table">
           <thead>
             <tr>
+              <th></th>
               <th>Input</th>
               <th>Output</th>
               <th>Total</th>
             </tr>
           </thead>
           <tbody id="token-table-body">
-            <tr>
-              <td id="input-tokens">—</td>
-              <td id="output-tokens">—</td>
-              <td id="total-tokens">—</td>
+            <tr class="current-row">
+              <td><small>Current</small></td>
+              <td id="input-tokens" class="token-input">—</td>
+              <td id="output-tokens" class="token-output">—</td>
+              <td id="total-tokens" class="token-total">—</td>
+            </tr>
+            <tr class="cumulative-row" style="border-top: 2px solid #e5e7eb;">
+              <td><small><strong>Session</strong></small></td>
+              <td id="cumulative-input" class="token-input"><strong>—</strong></td>
+              <td id="cumulative-output" class="token-output"><strong>—</strong></td>
+              <td id="cumulative-total" class="token-total"><strong>—</strong></td>
             </tr>
           </tbody>
         </table>
@@ -190,6 +202,21 @@
       <div class="cost-main" id="cost-main">—</div>
       <div class="cost-breakdown" id="cost-breakdown">Calculating...</div>
       <div class="cost-indicator" id="cost-indicator"></div>
+
+      <!-- Cumulative Cost Section -->
+      <div class="cumulative-cost" id="cumulative-cost-section" style="margin-top: 12px; padding-top: 8px; border-top: 1px solid #f3f4f6; display: none;">
+        <div class="cost-main" style="font-size: 16px; color: #059669;" id="cumulative-cost-main">—</div>
+        <div class="cost-breakdown" style="font-size: 10px; color: #6b7280;" id="cumulative-cost-breakdown">Session total</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="background: #f8fafc; border: 1px solid #e2e8f0;">
+    <div class="label">💰 GPT-5-Mini Pricing</div>
+    <div style="font-size: 11px; color: #64748b; line-height: 1.4;">
+      <div style="margin: 4px 0;"><strong>Input:</strong> $0.15 per 1M tokens</div>
+      <div style="margin: 4px 0;"><strong>Output:</strong> $0.60 per 1M tokens</div>
+      <div style="margin: 4px 0; font-style: italic; color: #9ca3af;">Prices may vary - check OpenAI pricing page for latest rates</div>
     </div>
   </div>
 
@@ -202,7 +229,6 @@
 <script>
 (async () => {
   // ====== Config ======
-  const MODEL = 'gpt-5-mini';
   const RESPONSES_URL = 'https://api.openai.com/v1/responses';
   const TARGET_MAX_BASE64_BYTES = 100 * 1024;                      // ≈100 KB on wire
   const BINARY_BUDGET = Math.floor(TARGET_MAX_BASE64_BYTES * 3/4); // ≈75 KB binary (base64 +33%)
@@ -210,9 +236,28 @@
   const JPEG_QUALITIES = [0.7, 0.6, 0.5, 0.45, 0.4, 0.35, 0.3];
   let SCAN_INTERVAL_MS = 700;                                      // dynamic interval, starts at 700ms
 
+  // ====== Model Configuration ======
+  const MODEL_PRICING = {
+    'gpt-5-mini': {
+      inputCost: 0.25 / 1000000,  // $0.25 per 1M input tokens
+      outputCost: 2.00 / 1000000, // $2.00 per 1M output tokens
+      displayName: 'GPT-5-Mini'
+    },
+    'gpt-5-nano': {
+      inputCost: 0.05 / 1000000,  // $0.05 per 1M input tokens
+      outputCost: 0.40 / 1000000, // $0.40 per 1M output tokens
+      displayName: 'GPT-5-Nano'
+    }
+  };
+
+  function getCurrentModel() {
+    return elModel ? elModel.value : 'gpt-5-mini';
+  }
+
   // ====== Elements ======
   const elVideo = document.getElementById('video');
   const elCanvas = document.getElementById('canvas');
+  const elModel  = document.getElementById('model');
   const elFacing = document.getElementById('facing');
   const elStart  = document.getElementById('startBtn');
   const elStop   = document.getElementById('stopBtn');
@@ -226,6 +271,20 @@
   let stream = null;
   let running = false;
   let inflight = false;
+
+  // ====== Cumulative Token Tracking ======
+  let cumulativeTokens = {
+    input: 0,
+    output: 0,
+    total: 0
+  };
+
+  // ====== Cumulative Cost Tracking ======
+  let cumulativeCosts = {
+    input: 0,
+    output: 0,
+    total: 0
+  };
 
   // ====== IndexedDB for OCR History ======
   const DB_NAME = 'OCRHistoryDB';
@@ -387,7 +446,7 @@
   async function compressToBudget(){
     drawFrame();
     for (let q of JPEG_QUALITIES){
-      const blob = await new Promise(res=>elCanvas.toBlob(res,'image/jpeg',q));
+      const blob = await new Promise(res=>elCanvas.toBlob(res,'image/webp',q));
       if (!blob) throw new Error('toBlob failed');
       if (blob.size <= BINARY_BUDGET) return { blob, quality:q };
     }
@@ -397,7 +456,7 @@
     tmp.height= Math.round(elCanvas.height* 0.85);
     tmp.getContext('2d').drawImage(elCanvas,0,0,tmp.width,tmp.height);
     for (let q of JPEG_QUALITIES){
-      const blob = await new Promise(res=>tmp.toBlob(res,'image/jpeg',q));
+      const blob = await new Promise(res=>tmp.toBlob(res,'image/webp',q));
       if (!blob) throw new Error('toBlob failed (2)');
       if (blob.size <= BINARY_BUDGET){
         elCanvas.width = tmp.width; elCanvas.height = tmp.height;
@@ -405,7 +464,7 @@
         return { blob, quality:q };
       }
     }
-    const fallbackBlob = await new Promise(res=>tmp.toBlob(res,'image/jpeg',JPEG_QUALITIES.at(-1)));
+    const fallbackBlob = await new Promise(res=>tmp.toBlob(res,'image/webp',JPEG_QUALITIES.at(-1)));
     return { blob:fallbackBlob, quality:JPEG_QUALITIES.at(-1) };
   }
 
@@ -416,7 +475,10 @@
         main: '—',
         breakdown: 'No usage data available',
         indicator: '',
-        indicatorClass: ''
+        indicatorClass: '',
+        inputCost: 0,
+        outputCost: 0,
+        totalCost: 0
       };
     }
 
@@ -452,7 +514,10 @@
       main: mainCost,
       breakdown: breakdown,
       indicator: indicator,
-      indicatorClass: indicatorClass
+      indicatorClass: indicatorClass,
+      inputCost: inputCost,
+      outputCost: outputCost,
+      totalCost: totalCost
     };
   }
 
@@ -460,8 +525,11 @@
   async function callResponsesAPI(dataUrl){
     const key = getKey(); if (!key) throw new Error('no-api-key');
 
+    const currentModel = getCurrentModel();
+    const modelConfig = MODEL_PRICING[currentModel];
+
     const payload = {
-      model: MODEL,
+      model: currentModel,
       // Performance optimizations for faster OCR
       reasoning: {
         effort: "minimal"
@@ -576,9 +644,20 @@
         const outputTokens = out.usage.output_tokens || 0;
         const totalTokens = inputTokens + outputTokens; // Calculate sum to verify
 
+        // Update current scan row
         document.getElementById('input-tokens').textContent = inputTokens.toLocaleString();
         document.getElementById('output-tokens').textContent = outputTokens.toLocaleString();
         document.getElementById('total-tokens').textContent = totalTokens.toLocaleString();
+
+        // Accumulate session totals
+        cumulativeTokens.input += inputTokens;
+        cumulativeTokens.output += outputTokens;
+        cumulativeTokens.total += totalTokens;
+
+        // Update cumulative row
+        document.getElementById('cumulative-input').textContent = cumulativeTokens.input.toLocaleString();
+        document.getElementById('cumulative-output').textContent = cumulativeTokens.output.toLocaleString();
+        document.getElementById('cumulative-total').textContent = cumulativeTokens.total.toLocaleString();
 
         tableContainer.style.display = 'block';
       }
@@ -590,6 +669,17 @@
       const indicator = document.getElementById('cost-indicator');
       indicator.textContent = costData.indicator;
       indicator.className = `cost-indicator ${costData.indicatorClass}`;
+
+      // Update cumulative costs
+      cumulativeCosts.input += costData.inputCost;
+      cumulativeCosts.output += costData.outputCost;
+      cumulativeCosts.total += costData.totalCost;
+
+      // Display cumulative costs
+      const cumulativeSection = document.getElementById('cumulative-cost-section');
+      document.getElementById('cumulative-cost-main').textContent = `$${cumulativeCosts.total.toFixed(8)}`;
+      document.getElementById('cumulative-cost-breakdown').textContent = `Session: ${cumulativeTokens.input}×${(cumulativeCosts.input/cumulativeTokens.input).toFixed(8)} + ${cumulativeTokens.output}×${(cumulativeCosts.output/cumulativeTokens.output).toFixed(8)}`;
+      cumulativeSection.style.display = 'block';
 
       // Save to history and update display
       await saveToHistory(out.text, out.usage, out.api_ms, blob.size);
@@ -626,6 +716,14 @@
     running = false;
     setStatus('stopped');
     stopCamera(); // Close camera stream when stopping
+
+    // Reset cumulative tracking for new session
+    cumulativeTokens = { input: 0, output: 0, total: 0 };
+    cumulativeCosts = { input: 0, output: 0, total: 0 };
+    const tableContainer = document.getElementById('token-table-container');
+    const cumulativeCostSection = document.getElementById('cumulative-cost-section');
+    tableContainer.style.display = 'none';
+    cumulativeCostSection.style.display = 'none';
   }
 
   // ====== UI ======
