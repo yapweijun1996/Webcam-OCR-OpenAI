@@ -593,24 +593,16 @@
 
   // ====== OCR Response Validation ======
   function validateOCRResponse(text) {
-    // Ensure text is a non-empty string
-    if (typeof text !== 'string' || text.length === 0) {
-      return '_no_valid_text_';
-    }
+    if (typeof text !== 'string') return '_no_valid_text_';
 
-    // Normalize for case-insensitive comparison
-    const normalized = text.toLowerCase().trim();
+    const normalized = text.trim();
+    if (normalized.length === 0) return '_no_valid_text_';
 
-    // Use regex pattern to efficiently catch common invalid response patterns
-    const invalidPattern = /(no text|no readable|unreadable|too small|blurry|cannot read|text not|unable to|not visible|not found|not present|not available|not detectable|not discernible|not recognizable|not identifiable|not apparent|not evident|not clear|not legible|this image appears|shows|seems to)/i;
+    // 判斷是否包含至少一個英文字母或數字
+    const hasAlphaNum = /[A-Za-z0-9]/.test(normalized);
+    if (!hasAlphaNum) return '_no_valid_text_';
 
-    // Check if response matches invalid pattern or is too short
-    if (invalidPattern.test(normalized) || text.trim().length < 2) {
-      return '_no_valid_text_';
-    }
-
-    // Return original text if it passes validation
-    return text;
+    return normalized;
   }
 
   // ====== OpenAI Responses API call (browser) — General OCR ======
@@ -678,8 +670,12 @@
                 const parsed = JSON.parse(c.text);
                 if (parsed && typeof parsed.text === 'string') { textOut = parsed.text; break; }
               } catch {
-                // Not JSON — just use raw text
-                textOut = c.text;
+                // Not JSON — validate raw text to filter out descriptive content
+                const validatedText = validateOCRResponse(c.text);
+                 if (validatedText !== '_no_valid_text_') {
+                   textOut = validatedText;
+                   break;
+                 }
                 break;
               }
             }
@@ -819,10 +815,8 @@
       setStatus('error');
       elMeta.textContent = err?.message || 'error';
     } finally {
-      if (retryCount >= 2) { // Only reset if we've exhausted retries
-        inflight = false;
-        if (running) setTimeout(scanOnce, SCAN_INTERVAL_MS);
-      }
+      inflight = false;
+      if (running) setTimeout(scanOnce, SCAN_INTERVAL_MS);
     }
   }
 
@@ -856,9 +850,8 @@
     cumulativeCostSection.style.display = 'none';
     apiTimeContainer.style.display = 'none';
 
-    // Clear current OCR display and history to avoid confusion
+    // Clear current OCR display but keep history for reference
     elOCR.textContent = '—';
-    document.getElementById('history-list').innerHTML = 'No previous captures';
   }
 
   // ====== UI ======
