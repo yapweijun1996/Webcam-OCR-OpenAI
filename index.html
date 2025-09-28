@@ -212,10 +212,10 @@
   </div>
 
   <div class="card" style="background: #f8fafc; border: 1px solid #e2e8f0;">
-    <div class="label">💰 GPT-5-Mini Pricing</div>
-    <div style="font-size: 11px; color: #64748b; line-height: 1.4;">
-      <div style="margin: 4px 0;"><strong>Input:</strong> $0.15 per 1M tokens</div>
-      <div style="margin: 4px 0;"><strong>Output:</strong> $0.60 per 1M tokens</div>
+    <div class="label">💰 Model Pricing Reference</div>
+    <div style="font-size: 11px; color: #64748b; line-height: 1.4;" id="pricing-reference">
+      <div style="margin: 4px 0;"><strong>GPT-5-Mini:</strong> $0.25 input / $2.00 output per 1M tokens</div>
+      <div style="margin: 4px 0;"><strong>GPT-5-Nano:</strong> $0.05 input / $0.40 output per 1M tokens</div>
       <div style="margin: 4px 0; font-style: italic; color: #9ca3af;">Prices may vary - check OpenAI pricing page for latest rates</div>
     </div>
   </div>
@@ -482,16 +482,27 @@
       };
     }
 
-    // GPT-5-mini pricing (approximate, update as needed)
-    const inputTokenCost = 0.15 / 1000000;  // $0.15 per 1M input tokens
-    const outputTokenCost = 0.60 / 1000000; // $0.60 per 1M output tokens
+    const currentModel = getCurrentModel();
+    const modelConfig = MODEL_PRICING[currentModel];
+
+    if (!modelConfig) {
+      return {
+        main: '—',
+        breakdown: 'Unknown model pricing',
+        indicator: '',
+        indicatorClass: '',
+        inputCost: 0,
+        outputCost: 0,
+        totalCost: 0
+      };
+    }
 
     const inputTokens = usage.input_tokens || 0;
     const outputTokens = usage.output_tokens || 0;
     const totalTokens = usage.total_tokens;
 
-    const inputCost = inputTokens * inputTokenCost;
-    const outputCost = outputTokens * outputTokenCost;
+    const inputCost = inputTokens * modelConfig.inputCost;
+    const outputCost = outputTokens * modelConfig.outputCost;
     const totalCost = inputCost + outputCost;
 
     // Format costs for display
@@ -729,6 +740,15 @@
   // ====== UI ======
   elStart.addEventListener('click', startAll);
   elStop.addEventListener('click', stopAll);
+  elModel.addEventListener('change', () => {
+    // Reset cumulative tracking when switching models
+    cumulativeTokens = { input: 0, output: 0, total: 0 };
+    cumulativeCosts = { input: 0, output: 0, total: 0 };
+    const tableContainer = document.getElementById('token-table-container');
+    const cumulativeCostSection = document.getElementById('cumulative-cost-section');
+    tableContainer.style.display = 'none';
+    cumulativeCostSection.style.display = 'none';
+  });
   window.addEventListener('load', () => { startAll().catch(console.warn); });
 })();
 </script>
