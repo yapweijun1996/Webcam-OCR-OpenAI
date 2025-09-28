@@ -268,7 +268,7 @@
   const BINARY_BUDGET = Math.floor(TARGET_MAX_BASE64_BYTES * 3/4); // ≈75 KB binary (base64 +33%)
   const FRAME_WIDTH = 640;                                         // downscale width
   const JPEG_QUALITIES = [0.7, 0.6, 0.5, 0.45, 0.4, 0.35, 0.3];
-  let SCAN_INTERVAL_MS = 500;                                      // dynamic interval, min 500ms
+  let SCAN_INTERVAL_MS = 100;                                      // fixed interval, fast mode
 
   // ====== Model Configuration ======
   const MODEL_PRICING = {
@@ -789,9 +789,8 @@
       await saveToHistory(out.text, out.usage, out.api_ms, blob.size);
       await displayHistory();
 
-      // Dynamically adjust scan interval based on API latency
-      const currentApiTime = out.api_ms;
-      SCAN_INTERVAL_MS = Math.max(500, currentApiTime * 1.2); // 20% buffer, min 500ms
+      // Fixed scan interval (fast mode)
+      SCAN_INTERVAL_MS = 100;
 
       setStatus('ok');
     } catch(err){
