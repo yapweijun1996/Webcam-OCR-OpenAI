@@ -1,4 +1,4 @@
-# OpenAI API 参考文档 (OpenAI API Reference)
+u# OpenAI API 参考文档 (OpenAI API Reference)
 
 ## 目录 (Table of Contents)
 
@@ -7,9 +7,29 @@
 - [调试请求 (Debugging Requests)](#调试请求-debugging-requests)
 - [向后兼容性 (Backward Compatibility)](#向后兼容性-backward-compatibility)
 - [Responses API](#responses-api)
+  - [创建模型响应 (Create Model Response)](#创建模型响应-create-model-response)
+  - [获取模型响应 (Get Model Response)](#获取模型响应-get-model-response)
+  - [删除模型响应 (Delete Model Response)](#删除模型响应-delete-model-response)
+  - [取消响应 (Cancel Response)](#取消响应-cancel-response)
+  - [列出输入项目 (List Input Items)](#列出输入项目-list-input-items)
 - [Conversations API](#conversations-api)
+  - [创建对话 (Create Conversation)](#创建对话-create-conversation)
+  - [检索对话 (Retrieve Conversation)](#检索对话-retrieve-conversation)
+  - [更新对话 (Update Conversation)](#更新对话-update-conversation)
+  - [删除对话 (Delete Conversation)](#删除对话-delete-conversation)
+  - [列出项目 (List Items)](#列出项目-list-items)
+  - [创建项目 (Create Items)](#创建项目-create-items)
+  - [检索项目 (Retrieve Item)](#检索项目-retrieve-item)
+  - [删除项目 (Delete Item)](#删除项目-delete-item)
+- [流式事件 (Streaming Events)](#流式事件-streaming-events)
 - [音频 API (Audio APIs)](#音频-api-audio-apis)
+  - [创建语音 (Create Speech)](#创建语音-create-speech)
+  - [创建转录 (Create Transcription)](#创建转录-create-transcription)
+  - [创建翻译 (Create Translation)](#创建翻译-create-translation)
 - [图像 API (Images API)](#图像-api-images-api)
+  - [创建图像 (Create Image)](#创建图像-create-image)
+  - [创建图像编辑 (Create Image Edit)](#创建图像编辑-create-image-edit)
+  - [创建图像变体 (Create Image Variation)](#创建图像变体-create-image-variation)
 - [嵌入 API (Embeddings API)](#嵌入-api-embeddings-api)
 - [评估 API (Evals API)](#评估-api-evals-api)
 - [微调 API (Fine-tuning API)](#微调-api-fine-tuning-api)
@@ -18,6 +38,10 @@
 - [模型 API (Models API)](#模型-api-models-api)
 - [内容审核 API (Moderations API)](#内容审核-api-moderations-api)
 - [向量存储 API (Vector Stores API)](#向量存储-api-vector-stores-api)
+- [实时 API (Realtime API)](#实时-api-realtime-api)
+- [聊天完成 API (Chat Completions API)](#聊天完成-api-chat-completions-api)
+- [助手 API (Assistants API)](#助手-api-assistants-api)
+- [管理 API (Administration API)](#管理-api-administration-api)
 
 ## 介绍 (Introduction)
 
@@ -82,27 +106,162 @@ OpenAI 最先进的接口，用于生成模型响应。支持文本和图像输�
 
 #### 请求参数 (Request Parameters)
 
-- `background` (boolean): 是否在后台运行模型响应
-- `conversation` (string|object): 此响应所属的对话
-- `include` (array): 指定要包含在模型响应中的附加输出数据
+**核心参数 (Core Parameters):**
 - `input` (string|array): 模型的文本、图像或文件输入
-- `instructions` (string): 插入模型上下文的系统（或开发者）消息
+- `model` (string): 用于生成响应的模型 ID，如 gpt-4o 或 o3
+
+**配置参数 (Configuration Parameters):**
+- `background` (boolean): 是否在后台运行模型响应，默认为 false
+- `conversation` (string|object): 此响应所属的对话，默认为 null
+- `instructions` (string): 插入模型上下文的系统消息
 - `max_output_tokens` (integer): 可以为响应生成的令牌上限
 - `max_tool_calls` (integer): 可以在响应中处理的内置工具调用总数最大值
-- `metadata` (map): 可以附加到对象的 16 个键值对集合
-- `model` (string): 用于生成响应的模型 ID
-- `parallel_tool_calls` (boolean): 是否允许模型并行运行工具调用
+- `parallel_tool_calls` (boolean): 是否允许模型并行运行工具调用，默认为 true
 - `previous_response_id` (string): 先前响应的唯一 ID
-- `prompt` (object): 提示模板及其变量的引用
-- `reasoning` (object): 推理模型的配置选项（仅限 gpt-5 和 o 系列模型）
-- `store` (boolean): 是否存储生成的模型响应
-- `stream` (boolean): 是否流式传输模型响应数据
-- `temperature` (number): 采样温度，介于 0 和 2 之间
+- `store` (boolean): 是否存储生成的模型响应，默认为 true
+- `stream` (boolean): 是否流式传输模型响应数据，默认为 false
+- `temperature` (number): 采样温度，介于 0 和 2 之间，默认为 1
 - `text` (object): 模型文本响应的配置选项
 - `tool_choice` (string|object): 模型应如何选择使用哪个工具
 - `tools` (array): 模型在生成响应时可能调用的工具数组
-- `top_p` (number): 核采样的替代方案
-- `truncation` (string): 用于模型响应的截断策略
+- `top_p` (number): 核采样的替代方案，默认为 1
+- `truncation` (string): 用于模型响应的截断策略，默认为 "disabled"
+
+**高级参数 (Advanced Parameters):**
+- `include` (array): 指定要包含在模型响应中的附加输出数据
+- `metadata` (map): 可以附加到对象的 16 个键值对集合
+- `prompt` (object): 提示模板及其变量的引用
+- `prompt_cache_key` (string): 用于优化缓存命中率的提示缓存键
+- `reasoning` (object): 推理模型的配置选项（仅限 gpt-5 和 o 系列模型）
+- `safety_identifier` (string): 用于帮助检测违反使用政策的用户标识符
+- `service_tier` (string): 指定用于服务请求的处理类型
+- `top_logprobs` (integer): 指定每个令牌位置要返回的最可能令牌数量
+- `user` (string): 最终用户的稳定标识符（已废弃）
+
+#### 工具支持 (Tools Support)
+
+**内置工具 (Built-in Tools):**
+- Web 搜索: 扩展模型能力进行网络搜索
+- 文件搜索: 使用您的数据作为模型输入
+- 代码解释器: 执行 Python 代码
+- 计算机使用: 允许模型与计算机交互
+
+**MCP 工具 (MCP Tools):**
+- 与第三方系统集成
+- 预定义连接器如 Google Drive、SharePoint
+
+**自定义工具 (Custom Tools):**
+- 用户定义的函数
+- 强类型参数和输出
+
+#### 示例请求 (Example Request)
+
+```bash
+curl https://api.openai.com/v1/responses \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -d '{
+    "model": "gpt-4.1",
+    "input": "Tell me a three sentence bedtime story about a unicorn."
+  }'
+```
+
+#### 响应示例 (Response Example)
+
+```json
+{
+  "id": "resp_67ccd2bed1ec8190b14f964abc0542670bb6a6b452d3795b",
+  "object": "response",
+  "created_at": 1741476542,
+  "status": "completed",
+  "error": null,
+  "incomplete_details": null,
+  "instructions": null,
+  "max_output_tokens": null,
+  "model": "gpt-4.1-2025-04-14",
+  "output": [
+    {
+      "type": "message",
+      "id": "msg_67ccd2bf17f0819081ff3bb2cf6508e60bb6a6b452d3795b",
+      "status": "completed",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "In a peaceful grove beneath a silver moon, a unicorn named Lumina discovered a hidden pool that reflected the stars. As she dipped her horn into the water, the pool began to shimmer, revealing a pathway to a magical realm of endless night skies. Filled with wonder, Lumina whispered a wish for all who dream to find their own hidden magic, and as she glanced back, her hoofprints sparkled like stardust.",
+          "annotations": []
+        }
+      ]
+    }
+  ],
+  "parallel_tool_calls": true,
+  "previous_response_id": null,
+  "reasoning": {
+    "effort": null,
+    "summary": null
+  },
+  "store": true,
+  "temperature": 1.0,
+  "text": {
+    "format": {
+      "type": "text"
+    }
+  },
+  "tool_choice": "auto",
+  "tools": [],
+  "top_p": 1.0,
+  "truncation": "disabled",
+  "usage": {
+    "input_tokens": 36,
+    "input_tokens_details": {
+      "cached_tokens": 0
+    },
+    "output_tokens": 87,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 123
+  },
+  "user": null,
+  "metadata": {}
+}
+```
+
+### 获取模型响应 (Get Model Response)
+
+**GET** `https://api.openai.com/v1/responses/{response_id}`
+
+检索具有给定 ID 的模型响应。
+
+#### 查询参数 (Query Parameters)
+- `include` (array): 要包含在响应中的附加字段
+- `include_obfuscation` (boolean): 是否启用流式混淆
+- `starting_after` (integer): 开始流式传输的事件序列号
+- `stream` (boolean): 是否流式传输模型响应数据
+
+### 删除模型响应 (Delete Model Response)
+
+**DELETE** `https://api.openai.com/v1/responses/{response_id}`
+
+删除具有给定 ID 的模型响应。
+
+### 取消响应 (Cancel Response)
+
+**POST** `https://api.openai.com/v1/responses/{response_id}/cancel`
+
+取消具有给定 ID 的模型响应。仅当使用 background 参数设置为 true 创建的响应才能被取消。
+
+### 列出输入项目 (List Input Items)
+
+**GET** `https://api.openai.com/v1/responses/{response_id}/input_items`
+
+返回给定响应的输入项目列表。
+
+#### 查询参数 (Query Parameters)
+- `after` (string): 要列出项目之后的项目 ID
+- `include` (array): 要包含在响应中的附加字段
+- `limit` (integer): 要返回的对象数量限制，默认为 20
+- `order` (string): 返回输入项目的顺序，默认为 desc
 
 ## Conversations API
 

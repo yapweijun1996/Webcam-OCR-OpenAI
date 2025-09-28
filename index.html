@@ -3,57 +3,197 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Vanilla OCR Scanner (Responses API)</title>
+<title>Vanilla Webcam OCR (Responses API)</title>
 <style>
-  :root { --pad:12px; }
+  :root { --pad:16px; --max-w:800px; }
   * { box-sizing:border-box; font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; }
-  body { margin:0; background:#f6f7f8; color:#111; }
-  .wrap { max-width:720px; margin:0 auto; padding:var(--pad); display:grid; gap:var(--pad); }
-  .bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-  button, select { padding:8px 12px; border:1px solid #ccc; background:#fff; border-radius:8px; }
-  button.primary { background:#111; color:#fff; border-color:#111; }
-  .video-box { position:relative; background:#000; border-radius:10px; overflow:hidden; }
-  video { width:100%; height:auto; display:block; }
+  body { margin:0; background:#f8fafc; color:#1f2937; line-height:1.5; }
+
+  /* Mobile-first responsive design */
+  .wrap {
+    max-width:var(--max-w); margin:0 auto; padding:var(--pad);
+    display:grid; gap:calc(var(--pad) * 0.75);
+    grid-template-columns: 1fr;
+  }
+
+  /* Desktop layout for larger screens */
+  @media (min-width: 768px) {
+    .wrap { grid-template-columns: 1fr 1fr; gap:var(--pad); }
+    .video-section { grid-column:1 / -1; }
+    .ocr-section { grid-column:1; }
+    .metrics-section { grid-column:2; }
+    .cost-section { grid-column:1 / -1; }
+  }
+
+  /* Controls bar */
+  .bar {
+    display:flex; gap:8px; flex-wrap:wrap; align-items:center;
+    padding:12px; background:#fff; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,0.1);
+  }
+  button, select {
+    padding:8px 16px; border:1px solid #d1d5db; background:#fff; border-radius:8px;
+    font-size:14px; cursor:pointer; transition: all 0.2s;
+  }
+  button:hover { background:#f9fafb; }
+  button.primary { background:#1f2937; color:#fff; border-color:#1f2937; }
+  button.primary:hover { background:#111827; }
+
+  /* Video section with sticky positioning */
+  .video-box {
+    position:sticky; top:16px; background:#000; border-radius:12px; overflow:hidden;
+    box-shadow:0 4px 6px rgba(0,0,0,0.1); aspect-ratio:16/9;
+  }
+  video { width:100%; height:100%; object-fit:cover; display:block; }
   .hud {
     position:absolute; left:0; right:0; bottom:0; display:flex; justify-content:space-between; gap:8px;
-    padding:8px; color:#fff; background:linear-gradient(180deg,transparent,rgba(0,0,0,.55));
+    padding:12px; color:#fff; background:linear-gradient(180deg,transparent,rgba(0,0,0,.7));
   }
-  .card { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:12px; }
-  .label { font-size:12px; color:#666; }
-  .value { font-size:22px; font-weight:700; letter-spacing:1px; }
+
+  /* Cards */
+  .card {
+    background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:16px;
+    box-shadow:0 1px 3px rgba(0,0,0,0.1); transition: box-shadow 0.2s;
+  }
+  .card:hover { box-shadow:0 4px 6px rgba(0,0,0,0.1); }
+  .label {
+    font-size:12px; color:#6b7280; font-weight:600; margin-bottom:8px;
+    display:flex; align-items:center; gap:4px;
+  }
+  .value {
+    font-size:14px; white-space:pre-wrap; line-height:1.5; max-height:200px; overflow-y:auto;
+    color:#1f2937;
+  }
+
+  /* Cost section styling */
+  .cost-container { display:grid; gap:6px; }
+  .cost-main { font-size:20px; font-weight:700; color:#2563eb; }
+  .cost-breakdown { font-size:11px; color:#6b7280; margin-top:2px; }
+  .cost-indicator {
+    font-size:10px; text-align:center; margin-top:4px; padding:2px 8px; border-radius:12px;
+    display:inline-block; font-weight:500;
+  }
+  .cost-low { background:#dcfce7; color:#166534; }
+  .cost-medium { background:#fef3c7; color:#92400e; }
+  .cost-high { background:#fecaca; color:#991b1b; }
+
+  /* Token table */
+  .token-table-container { margin-top:12px; }
+  .token-table {
+    width:100%; border-collapse:collapse; font-size:12px; background:#f9fafb; border-radius:6px; overflow:hidden;
+  }
+  .token-table th {
+    background:#e5e7eb; color:#374151; font-weight:600; padding:8px 6px; text-align:center; font-size:11px;
+  }
+  .token-table td {
+    padding:6px; text-align:center; font-weight:500; border-top:1px solid #f3f4f6;
+  }
+  .token-input { color:#059669; }
+  .token-output { color:#dc2626; }
+  .token-total { color:#2563eb; font-weight:700; }
+
+  /* History section */
+  .history-container {
+    margin-top:8px; max-height:120px; overflow-y:auto; font-size:11px; color:#6b7280;
+    border-top:1px solid #f3f4f6; padding-top:8px;
+  }
+  .history-header { font-weight:600; margin-bottom:6px; color:#374151; }
+  .history-item { margin:4px 0; padding:4px; border-radius:4px; cursor:pointer; transition: background 0.2s; }
+  .history-item:hover { background:#f9fafb; }
+
+  /* Notes and tips */
+  .note {
+    font-size:12px; color:#6b7280; text-align:center; padding:8px;
+    background:#f9fafb; border-radius:8px; border:1px solid #f3f4f6;
+  }
+
+  /* Mobile optimizations */
+  @media (max-width: 480px) {
+    :root { --pad:12px; }
+    .bar { padding:8px; gap:6px; }
+    button, select { padding:6px 12px; font-size:13px; }
+    .card { padding:12px; }
+    .video-box { aspect-ratio:4/3; }
+    .hud { padding:8px; font-size:11px; }
+  }
   .note { font-size:12px; color:#666; }
   .hidden { display:none !important; }
 </style>
 </head>
 <body>
 <div class="wrap">
+  <!-- Control Panel -->
   <div class="bar">
     <button id="apiBtn">API</button>
     <select id="facing">
-      <option value="environment">Rear camera</option>
-      <option value="user">Front camera</option>
+      <option value="environment">📷 Rear camera</option>
+      <option value="user">🤳 Front camera</option>
     </select>
-    <button id="startBtn" class="primary">Start</button>
-    <button id="stopBtn">Stop</button>
+    <button id="startBtn" class="primary">▶️ Start</button>
+    <button id="stopBtn">⏹️ Stop</button>
     <span class="note" id="status">idle</span>
   </div>
 
-  <div class="video-box">
-    <video id="video" playsinline autoplay muted></video>
-    <div class="hud">
-      <span class="note">Auto-scanning… (sequential)</span>
-      <span class="note" id="meta">—</span>
+  <!-- Video Section (Sticky) -->
+  <div class="video-section">
+    <div class="video-box">
+      <video id="video" playsinline autoplay muted></video>
+      <div class="hud">
+        <span class="note">🤖 Auto-scanning… (sequential)</span>
+        <span class="note" id="meta">—</span>
+      </div>
     </div>
   </div>
 
-  <div class="card">
-    <div class="label">Last OCR</div>
+  <!-- OCR Text Section -->
+  <div class="card ocr-section">
+    <div class="label">📝 OCR Text Record</div>
     <div class="value" id="ocr">—</div>
+    <div class="history-container" id="history-container">
+      <div class="history-header">📚 Recent captures:</div>
+      <div id="history-list">No previous captures</div>
+    </div>
   </div>
 
-  <div class="note">
-    Tip: on mobile, use HTTPS (or localhost) for camera access.
+  <!-- Performance Metrics -->
+  <div class="card metrics-section">
+    <div class="label">📊 Performance Metrics</div>
+    <div class="metrics-container">
+      <div class="performance-badge" style="background: #dbeafe; color: #1e40af; padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: 600; margin-bottom: 8px; display: inline-block;">
+        ⚡ Speed Optimized
+      </div>
+      <div class="metrics-summary" id="metrics-display">—</div>
+      <div class="token-table-container" id="token-table-container" style="display: none;">
+        <table class="token-table">
+          <thead>
+            <tr>
+              <th>Input</th>
+              <th>Output</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody id="token-table-body">
+            <tr>
+              <td id="input-tokens">—</td>
+              <td id="output-tokens">—</td>
+              <td id="total-tokens">—</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
+
+  <!-- Cost Analysis -->
+  <div class="card cost-section">
+    <div class="label">💰 Estimated Cost</div>
+    <div class="cost-container">
+      <div class="cost-main" id="cost-main">—</div>
+      <div class="cost-breakdown" id="cost-breakdown">Calculating...</div>
+      <div class="cost-indicator" id="cost-indicator"></div>
+    </div>
+  </div>
+
+  <div class="note">Tip: on mobile, use HTTPS (or localhost) for camera access.</div>
 </div>
 
 <!-- Hidden canvas for frame capture -->
@@ -64,11 +204,11 @@
   // ====== Config ======
   const MODEL = 'gpt-5-mini';
   const RESPONSES_URL = 'https://api.openai.com/v1/responses';
-  const TARGET_MAX_BASE64_BYTES = 100 * 1024;     // ≈100 KB on wire
-  const BINARY_BUDGET = Math.floor(TARGET_MAX_BASE64_BYTES * 3 / 4); // ≈75 KB binary (base64 adds ~33%)
-  const FRAME_WIDTH = 640;                         // downscale width
-  const JPEG_QUALITIES = [0.7, 0.6, 0.5, 0.45, 0.4, 0.35, 0.3]; // try in order
-  const SCAN_INTERVAL_MS = 700;                    // delay between scans
+  const TARGET_MAX_BASE64_BYTES = 100 * 1024;                      // ≈100 KB on wire
+  const BINARY_BUDGET = Math.floor(TARGET_MAX_BASE64_BYTES * 3/4); // ≈75 KB binary (base64 +33%)
+  const FRAME_WIDTH = 640;                                         // downscale width
+  const JPEG_QUALITIES = [0.7, 0.6, 0.5, 0.45, 0.4, 0.35, 0.3];
+  let SCAN_INTERVAL_MS = 700;                                      // dynamic interval, starts at 700ms
 
   // ====== Elements ======
   const elVideo = document.getElementById('video');
@@ -80,29 +220,129 @@
   const elStatus = document.getElementById('status');
   const elOCR    = document.getElementById('ocr');
   const elMeta   = document.getElementById('meta');
+  const elMetrics = document.getElementById('metrics-display');
 
   // ====== State ======
   let stream = null;
   let running = false;
   let inflight = false;
-  let lastTimer = null;
+
+  // ====== IndexedDB for OCR History ======
+  const DB_NAME = 'OCRHistoryDB';
+  const DB_VERSION = 1;
+  const STORE_NAME = 'ocr_results';
+  let db = null;
+
+  // Initialize IndexedDB
+  async function initDB() {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        db = request.result;
+        resolve(db);
+      };
+
+      request.onupgradeneeded = (event) => {
+        const db = event.target.result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          const store = db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+          store.createIndex('timestamp', 'timestamp', { unique: false });
+        }
+      };
+    });
+  }
+
+  // Save OCR result to history
+  async function saveToHistory(text, usage, api_ms, blob_size) {
+    if (!db) await initDB();
+
+    const record = {
+      text: text,
+      usage: usage,
+      api_ms: api_ms,
+      blob_size: blob_size,
+      timestamp: new Date().toISOString()
+    };
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.add(record);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+  }
+
+  // Load OCR history
+  async function loadHistory() {
+    if (!db) await initDB();
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_NAME], 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const index = store.index('timestamp');
+      const request = index.openCursor(null, 'prev'); // Most recent first
+
+      const results = [];
+      request.onsuccess = (event) => {
+        const cursor = event.target.result;
+        if (cursor) {
+          results.push(cursor.value);
+          cursor.continue();
+        } else {
+          resolve(results);
+        }
+      };
+
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  // Display history in UI
+  async function displayHistory() {
+    try {
+      const history = await loadHistory();
+      const historyList = document.getElementById('history-list');
+
+      if (history.length === 0) {
+        historyList.innerHTML = 'No previous captures';
+        return;
+      }
+
+      const historyHTML = history.slice(0, 5).map((record, index) => {
+        const date = new Date(record.timestamp).toLocaleTimeString();
+        const preview = record.text.length > 50 ? record.text.substring(0, 50) + '...' : record.text;
+        return `<div class="history-item" style="margin: 2px 0; padding: 2px; border-bottom: 1px solid #eee;" onclick="showHistoryItem(${record.id})">
+          <small style="color: #999;">${date}</small><br>
+          <small>${preview.replace(/\n/g, ' ')}</small>
+        </div>`;
+      }).join('');
+
+      historyList.innerHTML = historyHTML;
+    } catch (error) {
+      console.error('Error loading history:', error);
+      document.getElementById('history-list').innerHTML = 'Error loading history';
+    }
+  }
+
+  // Show specific history item
+  function showHistoryItem(id) {
+    // This would be implemented to show full text of selected history item
+    console.log('Show history item:', id);
+  }
 
   // ====== API Key (localStorage) ======
   function getKey() { return localStorage.getItem('OPENAI_API_KEY') || ''; }
-  function setKey(k) {
-    if (!k) { localStorage.removeItem('OPENAI_API_KEY'); }
-    else { localStorage.setItem('OPENAI_API_KEY', k.trim()); }
-  }
+  function setKey(k){ k ? localStorage.setItem('OPENAI_API_KEY', k.trim()) : localStorage.removeItem('OPENAI_API_KEY'); }
   async function ensureKey() {
     let k = getKey();
     if (!k) {
       k = prompt('Enter your OpenAI API key (sk-...)');
-      if (k && k.trim()) {
-        setKey(k.trim());
-      } else {
-        alert('API key required to proceed.');
-        throw new Error('no-api-key');
-      }
+      if (k && k.trim()) setKey(k.trim());
+      else { alert('API key required to proceed.'); throw new Error('no-api-key'); }
     }
     return k;
   }
@@ -122,91 +362,122 @@
   async function startCamera(facingMode='environment') {
     stopCamera();
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { exact: facingMode } }, audio: false
-      });
+      stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ exact:facingMode } }, audio:false });
     } catch {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode }, audio: false
-        });
-      } catch {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-      }
+      try { stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode }, audio:false }); }
+      catch { stream = await navigator.mediaDevices.getUserMedia({ video:true, audio:false }); }
     }
     elVideo.srcObject = stream;
     await elVideo.play();
 
-    // Set canvas size for downscale
     const vw = elVideo.videoWidth || 1280;
     const vh = elVideo.videoHeight || 720;
     const scale = FRAME_WIDTH / vw;
     elCanvas.width  = Math.round(vw * scale);
     elCanvas.height = Math.round(vh * scale);
   }
-  function stopCamera() {
-    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
-  }
+  function stopCamera(){ if (stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; } }
   elFacing.addEventListener('change', () => startCamera(elFacing.value).catch(console.warn));
 
-  // ====== Capture & Compression (<= ~75 KB binary → <= ~100 KB base64) ======
-  function drawFrame() {
-    const ctx = elCanvas.getContext('2d');
-    ctx.drawImage(elVideo, 0, 0, elCanvas.width, elCanvas.height);
+  // ====== Capture & Compression ======
+  function drawFrame(){ elCanvas.getContext('2d').drawImage(elVideo,0,0,elCanvas.width,elCanvas.height); }
+  function blobToDataURL(blob){
+    return new Promise((resolve,reject)=>{ const fr=new FileReader(); fr.onload=()=>resolve(fr.result); fr.onerror=reject; fr.readAsDataURL(blob); });
   }
-  function blobToDataURL(blob) {
-    return new Promise((resolve, reject) => {
-      const fr = new FileReader();
-      fr.onload = () => resolve(fr.result);
-      fr.onerror = reject;
-      fr.readAsDataURL(blob);
-    });
-  }
-  async function compressToBudget() {
+  async function compressToBudget(){
     drawFrame();
-    for (let q of JPEG_QUALITIES) {
-      const blob = await new Promise(res => elCanvas.toBlob(res, 'image/jpeg', q));
+    for (let q of JPEG_QUALITIES){
+      const blob = await new Promise(res=>elCanvas.toBlob(res,'image/jpeg',q));
       if (!blob) throw new Error('toBlob failed');
-      if (blob.size <= BINARY_BUDGET) {
-        return { blob, quality:q };
-      }
+      if (blob.size <= BINARY_BUDGET) return { blob, quality:q };
     }
-    // If still too large, downscale further by 0.85 and retry once
+    // downscale once more and try again
     const tmp = document.createElement('canvas');
     tmp.width = Math.round(elCanvas.width * 0.85);
-    tmp.height = Math.round(elCanvas.height * 0.85);
-    tmp.getContext('2d').drawImage(elCanvas, 0, 0, tmp.width, tmp.height);
-    for (let q of JPEG_QUALITIES) {
-      const blob = await new Promise(res => tmp.toBlob(res, 'image/jpeg', q));
+    tmp.height= Math.round(elCanvas.height* 0.85);
+    tmp.getContext('2d').drawImage(elCanvas,0,0,tmp.width,tmp.height);
+    for (let q of JPEG_QUALITIES){
+      const blob = await new Promise(res=>tmp.toBlob(res,'image/jpeg',q));
       if (!blob) throw new Error('toBlob failed (2)');
-      if (blob.size <= BINARY_BUDGET) {
-        // copy back to elCanvas to keep size consistent for next loops
+      if (blob.size <= BINARY_BUDGET){
         elCanvas.width = tmp.width; elCanvas.height = tmp.height;
-        elCanvas.getContext('2d').drawImage(elVideo, 0, 0, elCanvas.width, elCanvas.height);
+        elCanvas.getContext('2d').drawImage(elVideo,0,0,elCanvas.width,elCanvas.height);
         return { blob, quality:q };
       }
     }
-    // final fallback: smallest we got
-    const fallbackBlob = await new Promise(res => tmp.toBlob(res, 'image/jpeg', JPEG_QUALITIES.at(-1)));
-    return { blob: fallbackBlob, quality: JPEG_QUALITIES.at(-1) };
+    const fallbackBlob = await new Promise(res=>tmp.toBlob(res,'image/jpeg',JPEG_QUALITIES.at(-1)));
+    return { blob:fallbackBlob, quality:JPEG_QUALITIES.at(-1) };
   }
 
-  // ====== OpenAI Responses API call (browser) ======
-  async function callResponsesAPI(dataUrl) {
-    const key = getKey();
-    if (!key) throw new Error('no-api-key');
+  // ====== Cost calculation ======
+  function calculateCost(usage) {
+    if (!usage || !usage.total_tokens) {
+      return {
+        main: '—',
+        breakdown: 'No usage data available',
+        indicator: '',
+        indicatorClass: ''
+      };
+    }
+
+    // GPT-5-mini pricing (approximate, update as needed)
+    const inputTokenCost = 0.15 / 1000000;  // $0.15 per 1M input tokens
+    const outputTokenCost = 0.60 / 1000000; // $0.60 per 1M output tokens
+
+    const inputTokens = usage.input_tokens || 0;
+    const outputTokens = usage.output_tokens || 0;
+    const totalTokens = usage.total_tokens;
+
+    const inputCost = inputTokens * inputTokenCost;
+    const outputCost = outputTokens * outputTokenCost;
+    const totalCost = inputCost + outputCost;
+
+    // Format costs for display
+    const formatCost = (cost) => {
+      if (cost < 0.001) return cost.toFixed(8);
+      if (cost < 0.01) return cost.toFixed(6);
+      return cost.toFixed(4);
+    };
+
+    const mainCost = `$${formatCost(totalCost)}`;
+    const breakdown = `${inputTokens}×${formatCost(inputTokenCost)} + ${outputTokens}×${formatCost(outputTokenCost)}`;
+    const indicator = `${totalTokens} tokens`;
+
+    // Determine cost level for color coding
+    let indicatorClass = 'cost-low';
+    if (totalCost > 0.01) indicatorClass = 'cost-high';
+    else if (totalCost > 0.001) indicatorClass = 'cost-medium';
+
+    return {
+      main: mainCost,
+      breakdown: breakdown,
+      indicator: indicator,
+      indicatorClass: indicatorClass
+    };
+  }
+
+  // ====== OpenAI Responses API call (browser) — General OCR ======
+  async function callResponsesAPI(dataUrl){
+    const key = getKey(); if (!key) throw new Error('no-api-key');
 
     const payload = {
       model: MODEL,
-      // Structured outputs configuration
+      // Performance optimizations for faster OCR
+      reasoning: {
+        effort: "minimal"
+      },
+      text: {
+        verbosity: "low"
+      },
+      // Structured outputs: return { "text": "<full text>" }
       text: {
         format: {
           type: 'json_schema',
-          name: 'parking_scan',
+          name: 'ocr_text',
           schema: {
             type: 'object',
-            properties: { number: { type:'string', pattern:'^[0-9]+$' } },
-            required: ['number'],
+            properties: { text: { type:'string', minLength: 1 } },
+            required: ['text'],
             additionalProperties: false
           },
           strict: true
@@ -215,7 +486,8 @@
       input: [{
         role: 'user',
         content: [
-          { type:'input_text', text:'Extract ONLY the numeric parking/bay/stall ID from this image. Return JSON {"number": "..."}.' },
+          { type:'input_text',
+            text:'Transcribe ALL readable text from this image. Preserve natural spaces and line breaks. Return JSON {"text":"<full text>"} ONLY.' },
           { type:'input_image', image_url: dataUrl }
         ]
       }]
@@ -223,30 +495,51 @@
 
     const t0 = performance.now();
     const res = await fetch(RESPONSES_URL, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${key}`, 'Content-Type':'application/json' },
+      method:'POST',
+      headers:{ 'Authorization':`Bearer ${key}`, 'Content-Type':'application/json' },
       body: JSON.stringify(payload)
     });
     const t1 = performance.now();
     const data = await res.json();
 
-    if (!res.ok) {
+    if (!res.ok){
       const msg = data?.error?.message || `HTTP ${res.status}`;
       throw new Error(msg);
     }
 
-    // Preferred: parsed structured output
-    let number = data?.output_parsed?.number || '';
+    // 1) Preferred structured parse
+    let textOut = data?.output_parsed?.text || '';
 
-    // Fallback: try to parse text if schema not returned
-    if (!number) {
-      const text = data?.output_text || JSON.stringify(data?.output || data);
-      const m = (text||'').match(/[0-9]+/);
-      number = m ? m[0] : '';
+    // 2) Fallback: walk output -> message -> content -> output_text
+    if (!textOut && Array.isArray(data.output)) {
+      for (const item of data.output) {
+        if (item?.type === 'message' && Array.isArray(item.content)) {
+          for (const c of item.content) {
+            if (c?.type === 'output_text' && typeof c.text === 'string') {
+              // Try JSON first
+              try {
+                const parsed = JSON.parse(c.text);
+                if (parsed && typeof parsed.text === 'string') { textOut = parsed.text; break; }
+              } catch {
+                // Not JSON — just use raw text
+                textOut = c.text;
+                break;
+              }
+            }
+          }
+        }
+        if (textOut) break;
+      }
     }
 
+    // 3) Final fallback
+    if (!textOut) textOut = data?.output_text || '';
+
+    // Light normalization
+    if (typeof textOut === 'string') textOut = textOut.replace(/\n{3,}/g, '\n\n').trim();
+
     return {
-      number,
+      text: textOut,
       usage: data?.usage || null,
       api_ms: Math.round(t1 - t0)
     };
@@ -254,40 +547,73 @@
 
   // ====== Loop ======
   function setStatus(s){ elStatus.textContent = s; }
-  async function scanOnce() {
+  async function scanOnce(){
     if (!running || inflight) return;
-    if (!elVideo.srcObject) { setStatus('camera unavailable'); return; }
+    if (!elVideo.srcObject){ setStatus('camera unavailable'); return; }
 
     inflight = true;
-    try {
+    try{
       setStatus('capturing…');
       const { blob, quality } = await compressToBudget();
-      const dataUrl = await blobToDataURL(blob); // includes "data:image/jpeg;base64,..."
-      if (dataUrl.length > (TARGET_MAX_BASE64_BYTES * 1.1)) {
+      const dataUrl = await blobToDataURL(blob);
+      if (dataUrl.length > (TARGET_MAX_BASE64_BYTES * 1.1)){
         console.warn('dataURL > target size:', (dataUrl.length/1024).toFixed(1), 'KB');
       }
 
       setStatus('sending…');
       const out = await callResponsesAPI(dataUrl);
 
-      // Update UI with result
-      elOCR.textContent = out.number || '—';
+      elOCR.textContent = out.text || '—';
       const tok = out.usage?.total_tokens ?? 'n/a';
-      elMeta.textContent = `q:${quality} · bin:${(blob.size/1024|0)}KB · api:${out.api_ms}ms · tok:${tok}`;
+
+      // Update metrics display
+      elMetrics.textContent = `📊 bin:${(blob.size/1024|0)}KB · api:${out.api_ms}ms · interval:${SCAN_INTERVAL_MS}ms · tokens:${tok}`;
+
+      // Update token table if usage data is available
+      if (out.usage) {
+        const tableContainer = document.getElementById('token-table-container');
+        const inputTokens = out.usage.input_tokens || 0;
+        const outputTokens = out.usage.output_tokens || 0;
+        const totalTokens = inputTokens + outputTokens; // Calculate sum to verify
+
+        document.getElementById('input-tokens').textContent = inputTokens.toLocaleString();
+        document.getElementById('output-tokens').textContent = outputTokens.toLocaleString();
+        document.getElementById('total-tokens').textContent = totalTokens.toLocaleString();
+
+        tableContainer.style.display = 'block';
+      }
+
+      // Calculate and display cost estimate
+      const costData = calculateCost(out.usage);
+      document.getElementById('cost-main').textContent = costData.main;
+      document.getElementById('cost-breakdown').textContent = costData.breakdown;
+      const indicator = document.getElementById('cost-indicator');
+      indicator.textContent = costData.indicator;
+      indicator.className = `cost-indicator ${costData.indicatorClass}`;
+
+      // Save to history and update display
+      await saveToHistory(out.text, out.usage, out.api_ms, blob.size);
+      await displayHistory();
+
+      // Dynamically adjust scan interval based on API latency
+      const currentApiTime = out.api_ms;
+      SCAN_INTERVAL_MS = Math.max(500, currentApiTime * 1.2); // 20% buffer, min 500ms
+
       setStatus('ok');
-    } catch (err) {
+    } catch(err){
       console.error(err);
       setStatus('error');
-      elMeta.textContent = (err && err.message) ? err.message : 'error';
+      elMeta.textContent = err?.message || 'error';
     } finally {
       inflight = false;
       if (running) setTimeout(scanOnce, SCAN_INTERVAL_MS);
     }
   }
 
-  async function startAll() {
+  async function startAll(){
     try {
       await ensureKey();
+      await initDB(); // Initialize database
     } catch { return; }
     if (running) return;
     setStatus('starting camera…');
@@ -296,15 +622,13 @@
     setStatus('scanning…');
     scanOnce();
   }
-  function stopAll() {
+  function stopAll(){
     running = false;
-    clearTimeout(lastTimer);
     setStatus('stopped');
-    // keep preview; to fully stop camera, uncomment:
-    // stopCamera();
+    stopCamera(); // Close camera stream when stopping
   }
 
-  // ====== UI bindings ======
+  // ====== UI ======
   elStart.addEventListener('click', startAll);
   elStop.addEventListener('click', stopAll);
   window.addEventListener('load', () => { startAll().catch(console.warn); });
