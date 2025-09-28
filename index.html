@@ -396,6 +396,10 @@
   // ====== API Key (localStorage) ======
   function getKey() { return localStorage.getItem('OPENAI_API_KEY') || ''; }
   function setKey(k){ k ? localStorage.setItem('OPENAI_API_KEY', k.trim()) : localStorage.removeItem('OPENAI_API_KEY'); }
+
+  // ====== Model Selection (localStorage) ======
+  function getSavedModel() { return localStorage.getItem('SELECTED_MODEL') || 'gpt-5-mini'; }
+  function setSavedModel(model){ localStorage.setItem('SELECTED_MODEL', model); }
   async function ensureKey() {
     let k = getKey();
     if (!k) {
@@ -513,7 +517,7 @@
     };
 
     const mainCost = `$${formatCost(totalCost)}`;
-    const breakdown = `${inputTokens}×${formatCost(inputTokenCost)} + ${outputTokens}×${formatCost(outputTokenCost)}`;
+    const breakdown = `${inputTokens}×${formatCost(inputCost)} + ${outputTokens}×${formatCost(outputCost)}`;
     const indicator = `${totalTokens} tokens`;
 
     // Determine cost level for color coding
