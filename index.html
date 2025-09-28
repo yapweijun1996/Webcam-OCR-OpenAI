@@ -413,8 +413,11 @@
 
       const historyHTML = history.slice(0, 5).map((record, index) => {
         const date = new Date(record.timestamp).toLocaleTimeString();
-        const preview = record.text.length > 50 ? record.text.substring(0, 50) + '...' : record.text;
-        return `<div class="history-item" style="margin: 2px 0; padding: 2px; border-bottom: 1px solid #eee;" onclick="showHistoryItem(${record.id})">
+        // Dynamic preview: longer for short text, shorter for long text
+        const maxLength = record.text.length > 100 ? 40 : (record.text.length > 50 ? 60 : 80);
+        const preview = record.text.length > maxLength ? record.text.substring(0, maxLength) + '...' : record.text;
+        const fullText = record.text.replace(/"/g, '"'); // Escape quotes for title attribute
+        return `<div class="history-item" style="margin: 2px 0; padding: 2px; border-bottom: 1px solid #eee; cursor: pointer;" onclick="showHistoryItem(${record.id})" title="${fullText}">
           <small style="color: #999;">${date}</small><br>
           <small>${preview.replace(/\n/g, ' ')}</small>
         </div>`;
@@ -569,7 +572,7 @@
     };
 
     const mainCost = `$${formatCost(totalCost)}`;
-    const breakdown = `${inputTokens} tokens × $${modelConfig.inputCost.toFixed(8)} + ${outputTokens} tokens × $${modelConfig.outputCost.toFixed(8)}`;
+    const breakdown = `input ${inputTokens} × $${modelConfig.inputCost.toFixed(8)} + output ${outputTokens} × $${modelConfig.outputCost.toFixed(8)}`;
     const indicator = `${totalTokens} tokens`;
 
     // Determine cost level for color coding
@@ -595,73 +598,14 @@
       return '_no_valid_text_';
     }
 
-    // Normalize and check for invalid responses
+    // Normalize for case-insensitive comparison
     const normalized = text.toLowerCase().trim();
 
-    // Reject common invalid responses that AI might give
-    const invalidResponses = [
-      'no text',
-      'no readable text',
-      'text not found',
-      'unable to detect text',
-      'no text detected',
-      'no text visible',
-      'no text found',
-      'text is blurry',
-      'text is too small',
-      'cannot read text',
-      'no text available',
-      'no text present',
-      'text not visible',
-      'no text to transcribe',
-      'no text in image',
-      'no text detected in image',
-      'no text found in image',
-      'no text visible in image',
-      'no text present in image',
-      'no text available in image',
-      'no text to transcribe in image',
-      'no text can be found',
-      'no text can be detected',
-      'no text can be read',
-      'no text is visible',
-      'no text is present',
-      'no text is available',
-      'no text is found',
-      'no text is detected',
-      'no text is readable',
-      'no text is clear',
-      'no text is legible',
-      'no text is discernible',
-      'no text is recognizable',
-      'no text is identifiable',
-      'no text is apparent',
-      'no text is evident',
-      'no text is obvious',
-      'no text is clear',
-      'no text is visible',
-      'no text is present',
-      'no text is available',
-      'no text is found',
-      'no text is detected',
-      'no text is readable',
-      'no text is clear',
-      'no text is legible',
-      'no text is discernible',
-      'no text is recognizable',
-      'no text is identifiable',
-      'no text is apparent',
-      'no text is evident',
-      'no text is obvious'
-    ];
+    // Use regex pattern to efficiently catch common invalid response patterns
+    const invalidPattern = /(no text|no readable|unreadable|too small|blurry|cannot read|text not|unable to|not visible|not found|not present|not available|not detectable|not discernible|not recognizable|not identifiable|not apparent|not evident|not clear|not legible|this image appears|shows|seems to)/i;
 
-    // Check if response matches any invalid pattern
-    if (invalidResponses.some(invalid => normalized.includes(invalid))) {
-      return '_no_valid_text_';
-    }
-
-    // If text is just whitespace, punctuation, or very short, treat as no valid text
-    if (text.trim().length < 2) {
+    // Check if response matches invalid pattern or is too short
+    if (invalidPattern.test(normalized) || text.trim().length < 2) {
       return '_no_valid_text_';
     }
 
@@ -700,7 +644,7 @@
         role: 'user',
         content: [
           { type:'input_text',
-            text:'Transcribe ALL readable text from this image. Preserve spaces and line breaks. If there is no readable text, blurry text, or text is too small, then return exactly JSON {"text":"_no_valid_text_"} ONLY. Do not explain.' },
+            text:'Extract ALL readable text from this image ONLY. If no readable text is found (blurred/too small/none), reply strictly with JSON {"text":"_no_valid_text_"}. Do not describe the image, do not explain, do not add anything else. Your output must always be valid JSON that matches the provided schema.' },
           { type:'input_image', image_url: dataUrl }
         ]
       }]
@@ -765,7 +709,7 @@
 
   // ====== Loop ======
   function setStatus(s){ elStatus.textContent = s; }
-  async function scanOnce(){
+  async function scanOnce(retryCount = 0){
     if (!running || inflight) return;
     if (!elVideo.srcObject){ setStatus('camera unavailable'); return; }
 
@@ -856,11 +800,29 @@
       setStatus('ok');
     } catch(err){
       console.error(err);
+
+      // Retry logic with visual feedback
+      const maxRetries = 2;
+      if (retryCount < maxRetries) {
+        setStatus(`retrying… (${retryCount + 1}/${maxRetries})`);
+        elMeta.textContent = err?.message || 'error - retrying...';
+
+        // Wait before retry with exponential backoff
+        setTimeout(() => {
+          inflight = false;
+          if (running) scanOnce(retryCount + 1);
+        }, Math.min(1000 * Math.pow(2, retryCount), 5000)); // Max 5 second delay
+        return;
+      }
+
+      // Final failure after retries
       setStatus('error');
       elMeta.textContent = err?.message || 'error';
     } finally {
-      inflight = false;
-      if (running) setTimeout(scanOnce, SCAN_INTERVAL_MS);
+      if (retryCount >= 2) { // Only reset if we've exhausted retries
+        inflight = false;
+        if (running) setTimeout(scanOnce, SCAN_INTERVAL_MS);
+      }
     }
   }
 
@@ -885,12 +847,18 @@
     cumulativeTokens = { input: 0, output: 0, total: 0 };
     cumulativeCosts = { input: 0, output: 0, total: 0 };
     cumulativeApi = { total: 0, count: 0 };
+
+    // Hide tracking UI sections
     const tableContainer = document.getElementById('token-table-container');
     const cumulativeCostSection = document.getElementById('cumulative-cost-section');
     const apiTimeContainer = document.getElementById('api-time-container');
     tableContainer.style.display = 'none';
     cumulativeCostSection.style.display = 'none';
     apiTimeContainer.style.display = 'none';
+
+    // Clear current OCR display and history to avoid confusion
+    elOCR.textContent = '—';
+    document.getElementById('history-list').innerHTML = 'No previous captures';
   }
 
   // ====== UI ======
