@@ -126,7 +126,7 @@
     <button id="apiBtn">API</button>
     <select id="model">
       <option value="gpt-5-mini">🤖 GPT-5-Mini ($0.25/$2.00)</option>
-      <option value="gpt-5-nano">⚡ GPT-5-Nano ($0.05/$0.40)</option>
+      <option value="gpt-5-nano" selected>⚡ GPT-5-Nano ($0.05/$0.40)</option>
     </select>
     <select id="facing">
       <option value="environment">📷 Rear camera</option>
@@ -453,7 +453,7 @@
   function setKey(k){ k ? localStorage.setItem('OPENAI_API_KEY', k.trim()) : localStorage.removeItem('OPENAI_API_KEY'); }
 
   // ====== Model Selection (localStorage) ======
-  function getSavedModel() { return localStorage.getItem('SELECTED_MODEL') || 'gpt-5-mini'; }
+  function getSavedModel() { return localStorage.getItem('SELECTED_MODEL') || 'gpt-5-nano'; }
   function setSavedModel(model){ localStorage.setItem('SELECTED_MODEL', model); }
   async function ensureKey() {
     let k = getKey();
